@@ -1,0 +1,6 @@
+[submodule "third_party/autocellgen"]
+	path = third_party/autocellgen
+	url = https://github.com/The-OpenROAD-Project/AutoCellGen.git
+	# build_backend.sh applies backend.patch in place, so working tree changes
+	# are ignored; a moved submodule pointer is still reported.
+	ignore = dirty

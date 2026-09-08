@@ -1,0 +1,204 @@
+diff --git a/MAKE/PLACE_ROUTE/csyn_fp/CMakeLists.txt b/MAKE/PLACE_ROUTE/csyn_fp/CMakeLists.txt
+index 76deb74..3382647 100644
+--- a/MAKE/PLACE_ROUTE/csyn_fp/CMakeLists.txt
++++ b/MAKE/PLACE_ROUTE/csyn_fp/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ # Specify the minimum version for CMake
+-cmake_minimum_required(VERSION 2.8)
++cmake_minimum_required(VERSION 3.10)  # B1: CMake 3.27+ rejects 2.8
+ 
+ # Message
+ message(STATUS "Transistor Placement")
+@@ -20,7 +20,10 @@ set(CMAKE_CXX_COMPILER ${CXX})
+ project(transistorplacement)
+ 
+ # Z3 SMT prover - Please modify it to suit your environment
+-set ( Z3_DIR ./z3/build )
++# B3: honour an externally supplied -DZ3_DIR
++if(NOT Z3_DIR)
++  set(Z3_DIR ./z3/build)
++endif()
+ find_package(Z3
+   REQUIRED
+   CONFIG
+diff --git a/MAKE/PLACE_ROUTE/csyn_fp/header/Router.h b/MAKE/PLACE_ROUTE/csyn_fp/header/Router.h
+index 0d6e298..ef0e252 100644
+--- a/MAKE/PLACE_ROUTE/csyn_fp/header/Router.h
++++ b/MAKE/PLACE_ROUTE/csyn_fp/header/Router.h
+@@ -24,7 +24,12 @@ public:
+         grid = nullptr;
+         grid_edge = nullptr;
+         is_routable = false;
++        io_error = false;  // P6
++        runtime = 0;  // P6: avoid an uninitialised value on early return
++        solver_status = -1;  // P7
++        solver_reason = "";  // P7
+         m2_usage = 0;
++        m1_usage = 0;  // P4
+ 
+         if (setting.m1_dir == "BOTH") M1 = routing_direction::BOTH;
+         else if (setting.m1_dir == "HOR") M1 = routing_direction::HOR;
+@@ -76,7 +81,11 @@ public:
+     int edge_number;
+ 
+     bool is_routable;
++    int solver_status;        // P7: 0=unsat 1=sat 2=unknown -1=not run
++    std::string solver_reason;  // P7: reason for unknown (timeout/memout/...)
++    bool io_error;  // P6: no IO access point (the paper's tile valid flag)
+     double m2_usage;
++    double m1_usage;  // P4: the M1 of the paper's three Pareto axes
+     int64_t runtime;
+ 	routing_direction M1, M2;
+ };
+\ No newline at end of file
+diff --git a/MAKE/PLACE_ROUTE/csyn_fp/src/Router.cpp b/MAKE/PLACE_ROUTE/csyn_fp/src/Router.cpp
+index 39d8afc..f0cf192 100644
+--- a/MAKE/PLACE_ROUTE/csyn_fp/src/Router.cpp
++++ b/MAKE/PLACE_ROUTE/csyn_fp/src/Router.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include "../header/Router.h"
+ 
+ Router::~Router() {
+@@ -1532,6 +1533,9 @@ void Router::add_detailed_routing_formulation(z3::context & c, z3::optimize & op
+ 		auto& fp_list = IO_pin.second;
+ 		if (fp_list.size() != 1) {
+ 			std::cout << "IO error!" << " Pin_name: " << pin_name << ", fp_list: " << fp_list.size() << std::endl;
++			if (std::getenv("XSYNTH_NO_EXIT")) {  // P6
++				io_error = true; is_routable = false; return;
++			}
+ 			exit(0);
+ 		}
+ 
+@@ -1901,6 +1905,9 @@ void Router::gather_result(z3::context &c, z3::optimize &opt) {
+ 		auto& fp_list = IO_pin.second;
+ 		if (fp_list.size() != 1) {
+ 			std::cout << "IO error!" << std::endl;
++			if (std::getenv("XSYNTH_NO_EXIT")) {  // P6
++				io_error = true; is_routable = false; return;
++			}
+ 			exit(0);
+ 		}
+ 		
+@@ -2067,6 +2074,14 @@ void Router::print_result(std::ofstream &out) {
+ 	}
+ 	out << std::endl;		
+ 
++	{  // P4: M1 usage (one of the paper's three Pareto axes)
++		int m1_hor_resource = (col_size - 1) * row_size;
++		int m1_hor_usage = 0;
++		for (int y = 0; y < row_size; y++)
++			for (int x = 0; x < col_size - 1; x++)
++				if (overall_result->hor_grid[0][y][x] == 1) m1_hor_usage++;
++		m1_usage = m1_hor_resource ? static_cast<double>(m1_hor_usage) / m1_hor_resource : 0.0;
++	}
+ 	m2_usage = static_cast<double>(m2_hor_usage) / m2_hor_resource;
+ 
+ 
+@@ -2079,7 +2094,10 @@ bool Router::routing(fs::path output_path) {
+ 	initialize_grid();
+ 	generate_pin_map();
+ 
+-	z3::set_param("timeout", 60 * 60000);
++	{  // P3: tunable via XSYNTH_Z3_TIMEOUT_MS; upstream default (60 min) otherwise.
++		const char *xs_to = std::getenv("XSYNTH_Z3_TIMEOUT_MS");
++		z3::set_param("timeout", xs_to ? std::atoi(xs_to) : 60 * 60000);
++	}
+ 	//z3::set_param("parallel.enable", true);
+ 	//z3::set_param("parallel.threads.max", 4);
+ 	//std::cout << opt << std::endl;
+@@ -2155,9 +2173,12 @@ bool Router::routing(fs::path output_path) {
+ 	z3::optimize opt(c);
+ 
+ 	add_detailed_routing_formulation(c, opt);
++	if (io_error) return false;  // P6
+ 
+ 	auto start = std::chrono::high_resolution_clock::now();
+ 	auto result = opt.check();
++	solver_status = (result == z3::sat) ? 1 : ((result == z3::unsat) ? 0 : 2);  // P7
++
+ 	auto end = std::chrono::high_resolution_clock::now();
+ 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+ 	runtime = duration.count();
+@@ -3290,6 +3311,10 @@ void Router::generate_ascii(std::ofstream &out, std::string cell_name) {
+ 
+ 							if (next_pt_idx == -1) {
+ 								std::cout << "Cannot find next points" << std::endl;
++								if (std::getenv("XSYNTH_NO_EXIT")) {  // P8
++									std::cout << "XSYNTH_ASCII_INCOMPLETE" << std::endl;
++									return;
++								}
+ 								exit(0);
+ 							}
+ 							cir_boundary.push_back(std::get<0>(boundary_points[next_pt_idx]));
+@@ -3484,6 +3509,10 @@ void Router::generate_ascii(std::ofstream &out, std::string cell_name) {
+ 
+ 							if (next_pt_idx == -1) {
+ 								std::cout << "Cannot find next points" << std::endl;
++								if (std::getenv("XSYNTH_NO_EXIT")) {  // P8
++									std::cout << "XSYNTH_ASCII_INCOMPLETE" << std::endl;
++									return;
++								}
+ 								exit(0);
+ 							}
+ 							cir_boundary.push_back(std::get<0>(boundary_points[next_pt_idx]));
+diff --git a/MAKE/PLACE_ROUTE/csyn_fp/src/main.cpp b/MAKE/PLACE_ROUTE/csyn_fp/src/main.cpp
+index fea418f..10b0c66 100644
+--- a/MAKE/PLACE_ROUTE/csyn_fp/src/main.cpp
++++ b/MAKE/PLACE_ROUTE/csyn_fp/src/main.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include "../header/global.h"
+ #include "../header/cdlParser.h"
+ #include "../header/Placer.h"
+@@ -121,7 +122,13 @@ void make_IOnet(std::string outpath, Cell& cell){
+ }
+ 
+ 
+-int main(int argc, char **argv) {
++int main(int argc, char **argv) {
++    {  // P1: X-Synth routing-only mode (returns -1 without the flag)
++        extern int xsynth_route_main(int, char **);
++        int xs_rc = xsynth_route_main(argc, argv);
++        if (xs_rc >= 0) return xs_rc;
++    }
++
+ 
+     ArgumentParser agparser(argc, argv);
+     fs::path input_path, output_path, dr_path, route_path, gds_path;
+@@ -279,7 +286,7 @@ int main(int argc, char **argv) {
+                             runtime = router.runtime;
+                             out << "Width " << width + 2 << ", Solution " << k << " (Cost = " << w_solutions[k].cost  << "): M1 routable, Routing time: " << router.runtime << "ms" << std::endl;
+                             out << "[NOR_HPWL=" << w_solutions[k].nor_hpwl << ", MAX_H_GRID=" << w_solutions[k].max_h_grid << ", MAX_V_GRID=" << w_solutions[k].max_v_grid << ", MAX_H_COLUMN=" << w_solutions[k].max_h_column << ", MAX_V_COLUMN=" << w_solutions[k].max_v_column << ", MAX_H_ROW=" << w_solutions[k].max_h_row << ", MAX_V_ROW=" << w_solutions[k].max_v_row << std::endl << std::endl;
+-                            break;
++                            if (!std::getenv("XSYNTH_LABEL_ALL")) break;  // P2
+                         }
+                         else {
+                             is_routable = true;
+@@ -300,7 +307,7 @@ int main(int argc, char **argv) {
+                         system(cp_gds.c_str());
+                     }
+ 
+-                    if (is_m1_routable) break;
++                    if (is_m1_routable && !std::getenv("XSYNTH_LABEL_ALL")) break;  // P2
+                 }
+ 
+             }
+@@ -381,7 +388,7 @@ int main(int argc, char **argv) {
+                             runtime = router.runtime;
+                             out << "Width " << width + 2 << ", Solution " << k << " (Cost = " << w_solutions[k].cost  << "): M1 routable, Routing time: " << router.runtime << "ms" << std::endl;
+                             out << "[NOR_HPWL=" << w_solutions[k].nor_hpwl << ", MAX_H_GRID=" << w_solutions[k].max_h_grid << ", MAX_V_GRID=" << w_solutions[k].max_v_grid << ", MAX_H_COLUMN=" << w_solutions[k].max_h_column << ", MAX_V_COLUMN=" << w_solutions[k].max_v_column << ", MAX_H_ROW=" << w_solutions[k].max_h_row << ", MAX_V_ROW=" << w_solutions[k].max_v_row << std::endl << std::endl;
+-                            break;
++                            if (!std::getenv("XSYNTH_LABEL_ALL")) break;  // P2
+                         }
+                         else {
+                             is_routable = true;
+@@ -400,7 +407,7 @@ int main(int argc, char **argv) {
+                         system(cp_gds.c_str());
+                     }
+ 
+-                    if (is_m1_routable) break;
++                    if (is_m1_routable && !std::getenv("XSYNTH_LABEL_ALL")) break;  // P2
+                 }
+             }
+        }

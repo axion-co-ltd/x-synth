@@ -1,0 +1,55 @@
+{
+  "note": "Reference output of `scripts/reproduce.sh` for this implementation on this setup. Split sizes and cell counts are deterministic and are checked exactly. Timings depend on the machine and on --jobs, so t*/oracle is reported for comparison but only loosely bounded.",
+  "config": {
+    "preset": "r0",
+    "epochs": 30,
+    "seed": 0,
+    "hidden": 32,
+    "layers": 3,
+    "heads": 4
+  },
+  "deterministic": {
+    "train": {
+      "samples": 2417,
+      "cells": 16
+    },
+    "test": {
+      "samples": 980,
+      "cells": 14
+    },
+    "cross": {
+      "samples": 913,
+      "cells": 5
+    }
+  },
+  "reference": {
+    "train": {
+      "oracle_ms": 519749,
+      "ratio": {
+        "cost": 27.04,
+        "random": 20.67,
+        "xsynth": 20.37
+      }
+    },
+    "test": {
+      "oracle_ms": 484322,
+      "ratio": {
+        "cost": 30.47,
+        "random": 27.28,
+        "xsynth": 15.89
+      }
+    },
+    "cross": {
+      "oracle_ms": 287743,
+      "ratio": {
+        "cost": 6.77,
+        "random": 9.85,
+        "xsynth": 14.18
+      }
+    }
+  },
+  "tolerance": {
+    "ratio_rel": 0.25,
+    "comment": "Ratios cancel machine speed but not solver nondeterminism or CPU contention, so they are bounded at 25%. Sample and cell counts must match exactly \u2014 they come from the cell library and the presets, not from timing."
+  }
+}

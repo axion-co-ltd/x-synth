@@ -1,0 +1,39 @@
+X-Synth open-source reproduction
+Copyright (c) 2026 the X-Synth authors
+
+This product includes or depends on the following third-party components.
+
+--------------------------------------------------------------------------------
+AutoCellGen / SNUCell            (primary placer + router backbone)
+    https://github.com/The-OpenROAD-Project/AutoCellGen
+    BSD 3-Clause License
+    Copyright (c) 2024 Kyeonghyeon Baek, Sehyeon Chung, Handong Cho,
+                       Hyunbae Seo, Kyu-myung Choi, and Taewhan Kim
+    Included as a git submodule under third_party/. Modifications to its sources
+    are kept as explicit patches under patches/autocellgen/. The files in
+    configs/ are copies of its DATA/input/placement_file.style with a few keys
+    changed; see configs/README.md.
+
+--------------------------------------------------------------------------------
+Z3 Theorem Prover                (SMT solver used by the backend router)
+    https://github.com/Z3Prover/z3
+    MIT License
+    Copyright (c) Microsoft Corporation
+
+--------------------------------------------------------------------------------
+ASAP7 PDK                        (cell netlists and design-rule basis)
+    https://github.com/The-OpenROAD-Project/asap7
+    BSD 3-Clause License
+    Copyright (c) 2020 Lawrence T. Clark, Vinay Vashishtha,
+                       Arizona State University
+
+--------------------------------------------------------------------------------
+NOT USED. Recorded to document a deliberate exclusion:
+
+LibreCell / lclayout
+    https://codeberg.org/librecell/lclayout
+    CERN-OHL-S-2.0 and AGPL-3.0-or-later
+    Evaluated as a placer/router backbone and rejected because its strongly
+    reciprocal licensing is incompatible with this project's permissive release.
+    No code, and no derivative of any code, from LibreCell is present here.
+--------------------------------------------------------------------------------
