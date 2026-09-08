@@ -1,0 +1,47 @@
+# Derived output. Under data/ only expected.json is tracked.
+data/*
+!data/expected.json
+work/
+*.log
+/output.txt
+
+# Router and placer output
+*.gds
+*.gds2
+*.oas
+*.def
+*.lef
+*.ascii
+
+# The Z3 distribution that scripts/build_backend.sh downloads (43 MB).
+# Z3Config.cmake is ours, so it stays tracked.
+third_party/z3-prebuilt/*
+!third_party/z3-prebuilt/Z3Config.cmake
+
+# Backend build output
+third_party/autocellgen/**/build/
+third_party/autocellgen/**/*.log
+third_party/autocellgen/**/CMakeLists.txt.orig
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# ML output
+*.ckpt
+*.pt
+*.pth
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
